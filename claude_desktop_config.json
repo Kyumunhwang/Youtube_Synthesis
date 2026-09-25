@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "scrapegraph": {
+      "command": "uvx",
+      "args": ["scrapegraph-mcp"]
+    }
+  }
+}

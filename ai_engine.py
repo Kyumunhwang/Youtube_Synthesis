@@ -2,16 +2,24 @@
 
 Handles interactions with Google Generative AI (Gemini) SDK, providing
 single-video executive briefings and deep multi-video sectional synthesis.
-Supports seamless key discovery across Streamlit Secrets, environment variables (.env),
-and UI sidebar inputs.
+Features a resilient Multi-Model Fallback Chain (gemini-2.5-flash -> gemini-2.5-flash-lite -> gemini-flash-latest)
+with automatic retry on 503 UNAVAILABLE / 429 spikes.
 """
 
 import os
+import time
 from typing import Dict, Any, List, Optional
 from dotenv import load_dotenv
 
 # Automatically load local .env if available
 load_dotenv()
+
+# Priority fallback models supported by Google GenAI v2
+FALLBACK_MODELS: List[str] = [
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-flash-latest"
+]
 
 
 def get_active_gemini_api_key(explicit_key: Optional[str] = None) -> str:
@@ -47,6 +55,41 @@ def is_gemini_configured(api_key: Optional[str] = None) -> bool:
     return bool(key and len(key) >= 20)
 
 
+def _call_gemini_with_resilience(client: Any, prompt: str) -> Optional[str]:
+    """Execute Gemini prompt across candidate models with automatic retry on 503/429 spikes.
+
+    Args:
+        client: google.genai.Client instance.
+        prompt: User/system prompt string.
+
+    Returns:
+        Generated text or None if all models failed.
+    """
+    last_error: Optional[str] = None
+
+    for model_name in FALLBACK_MODELS:
+        for attempt in range(2):  # Try up to 2 attempts per model
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt
+                )
+                if response and response.text:
+                    return response.text.strip()
+            except Exception as err:
+                err_str = str(err)
+                last_error = err_str
+                # If high-demand spike (503) or rate limit (429), back off and retry
+                if "503" in err_str or "UNAVAILABLE" in err_str or "429" in err_str:
+                    time.sleep(1.2)
+                    continue
+                else:
+                    # Model not supported or permanent error, skip to next candidate model
+                    break
+
+    return None
+
+
 def generate_executive_briefing(
     title: str,
     channel: str,
@@ -54,6 +97,7 @@ def generate_executive_briefing(
     api_key: Optional[str] = None
 ) -> str:
     """Generate a high-density, professional executive brief for a single video.
+    Uses multi-model fallback chain to ensure high availability even under Google cloud spikes.
 
     Args:
         title: Video title.
@@ -62,7 +106,7 @@ def generate_executive_briefing(
         api_key: Optional explicit Gemini API key.
 
     Returns:
-        Markdown-formatted executive brief with core thesis, key insights, and Q&A.
+        Markdown-formatted executive brief with core thesis, key insights, and recommendations.
     """
     key = get_active_gemini_api_key(api_key)
     if not key:
@@ -73,30 +117,37 @@ def generate_executive_briefing(
         client = genai.Client(api_key=key)
 
         prompt = (
-            f"You are a Senior Technology Intelligence Analyst. "
-            f"Analyze the following YouTube video transcript and generate a structured executive brief in Korean.\n\n"
+            f"You are a Senior Technology Intelligence Analyst and Technical Architecture Expert. "
+            f"Analyze the following video content/transcript and generate a structured executive brief in professional Korean.\n\n"
             f"**Video Title:** {title}\n"
-            f"**Channel:** {channel}\n\n"
-            f"**Transcript Context:**\n{transcript[:8000]}\n\n"
-            "Format the output strictly as follows:\n"
+            f"**Channel/Uploader:** {channel}\n\n"
+            f"**Transcript / Context:**\n{transcript[:8000]}\n\n"
+            "Format the output strictly as follows in Korean:\n"
             "### 🎯 핵심 어젠다 및 총평 (Executive Overview)\n"
-            "(2~3 paragraphs explaining the core thesis and significance)\n\n"
+            "(2~3 paragraphs explaining the core thesis, significance, and context)\n\n"
             "### 💡 핵심 기술 인사이트 & 논점 (Key Technical Insights)\n"
-            "(Bullet points with bold headings, citing specific nuances)\n\n"
+            "(Detailed bullet points with bold headings, citing specific models, frameworks, and benchmarks)\n\n"
             "### 🛠️ 실무 적용 포인트 (Actionable Recommendations)\n"
-            "(Actionable takeaways for architects and developers)"
+            "(Practical takeaways and adoption steps for architects and developers)"
         )
 
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt
-        )
-        if response and response.text:
-            return response.text.strip()
+        output = _call_gemini_with_resilience(client, prompt)
+        if output:
+            return output
     except Exception as err:
         return f"> ⚠️ AI Briefing Generation Error: {str(err)}"
 
-    return ""
+    # Graceful fallback brief if all AI models are temporarily busy
+    fallback_paras = [p.strip() for p in transcript.split("\n\n") if len(p.strip()) > 30]
+    excerpt = " ".join(fallback_paras[:3])[:300] if fallback_paras else transcript[:300]
+    return (
+        "### 🎯 핵심 어젠다 (Local Fallback Summary)\n"
+        f"본 영상은 **{channel}** 채널의 **{title}**에 관한 자료입니다. "
+        "일시적인 AI 모델 서버 과부하로 인해 로컬 고밀도 다이제스트로 생성되었습니다.\n\n"
+        f"> \"{excerpt}...\"\n\n"
+        "### 💡 알림\n"
+        "- Google AI 서버 일시적 지연으로 로컬 요약이 대체 표시되었습니다. 잠시 후 'Deep AI Brief' 버튼을 다시 누르면 최신 신경망 분석이 갱신됩니다."
+    )
 
 
 def generate_multi_video_synthesis(
@@ -104,7 +155,7 @@ def generate_multi_video_synthesis(
     api_key: Optional[str] = None
 ) -> str:
     """Synthesize multiple YouTube video intelligence records into a deep,
-    paragraph-by-paragraph report using Gemini 2.5 Flash.
+    paragraph-by-paragraph report using resilient multi-model fallback.
 
     Args:
         selected_videos: List of video dictionaries with transcript/summary data.
@@ -132,7 +183,7 @@ def generate_multi_video_synthesis(
 
         prompt = (
             "You are a Chief Technology Research Architect. "
-            "Analyze the following selected YouTube video sources and produce a comprehensive, "
+            "Analyze the following selected video intelligence sources and produce a comprehensive, "
             "paragraph-by-paragraph intelligence synthesis report in Korean.\n\n"
             "Structure Requirements:\n"
             "# 📑 Multi-Video Consolidated Intelligence Report\n"
@@ -151,12 +202,9 @@ def generate_multi_video_synthesis(
             + "\n\n".join(context_blocks)
         )
 
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt
-        )
-        if response and response.text:
-            return response.text.strip()
+        output = _call_gemini_with_resilience(client, prompt)
+        if output:
+            return output
     except Exception as err:
         return f"> ⚠️ Gemini Synthesis Error: {str(err)}\n\n_Falling back to sectional synthesizer..._"
 

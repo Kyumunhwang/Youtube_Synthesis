@@ -51,11 +51,25 @@ from ai_engine import (
 )
 
 st.set_page_config(
-    page_title="YouTube Intelligence Studio",
+    page_title="YouTube Studio",
     page_icon="📺",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Mobile PWA & Home Screen App Title Meta Configuration
+st.markdown("""
+<head>
+    <title>YouTube Studio</title>
+    <meta name="apple-mobile-web-app-title" content="YouTube Studio">
+    <meta name="application-name" content="YouTube Studio">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+</head>
+<script>
+    document.title = "YouTube Studio";
+</script>
+""", unsafe_allow_html=True)
 
 @st.dialog("📑 Synthesized Intelligence Report", width="large")
 def show_browser_report_modal(report_md: str):
@@ -185,7 +199,7 @@ with st.sidebar:
     st.caption("Engine: yt-dlp + Gemini 2.5 Flash / High-Density Sectional Synthesizer")
 
 # Main Header
-st.markdown('<div class="main-header">YouTube Intelligence Studio</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header">YouTube Studio</div>', unsafe_allow_html=True)
 st.caption("Search, analyze, digest, and synchronize YouTube video intelligence directly to your Google Drive knowledge base.")
 
 # Top Navigation Tabs

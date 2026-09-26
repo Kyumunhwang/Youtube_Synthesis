@@ -134,20 +134,47 @@ with st.sidebar:
 
     st.markdown("---")
     st.markdown("### 🤖 AI Engine Settings")
-    default_key = get_active_gemini_api_key()
-    gemini_key = st.text_input(
-        "Gemini API Key",
-        type="password",
-        value=st.session_state.get("gemini_api_key", default_key),
-        help="Google Gemini API Key. Automatically detects .env or Streamlit Secrets (GEMINI_API_KEY). If empty, local sectional synthesizer is used."
-    )
-    st.session_state["gemini_api_key"] = gemini_key
 
+    if "gemini_api_key" not in st.session_state:
+        st.session_state["gemini_api_key"] = get_active_gemini_api_key()
+    if "show_key_editor" not in st.session_state:
+        st.session_state["show_key_editor"] = False
+
+    gemini_key = st.session_state["gemini_api_key"]
     is_ai_active = is_gemini_configured(gemini_key)
+
     if is_ai_active:
         st.success("🟢 Gemini 2.5 Flash: Active", icon="✨")
     else:
-        st.info("⚪ Local Heuristic Synthesizer (Zero-API Mode)", icon="ℹ️")
+        st.info("⚪ Local Synthesizer (No API Key)", icon="ℹ️")
+
+    if not st.session_state["show_key_editor"]:
+        if st.button("🔑 Change Gemini API Key", use_container_width=True, key="btn_toggle_key_editor"):
+            st.session_state["show_key_editor"] = True
+            st.rerun()
+    else:
+        with st.expander("🔑 Update Gemini API Key", expanded=True):
+            new_key_input = st.text_input(
+                "New API Key",
+                type="password",
+                value="",
+                placeholder="AIzaSy...",
+                help="Enter a new Google AI Studio API key."
+            )
+            k_col1, k_col2 = st.columns(2)
+            with k_col1:
+                if st.button("💾 Apply", use_container_width=True, type="primary", key="btn_apply_key"):
+                    if new_key_input.strip():
+                        st.session_state["gemini_api_key"] = new_key_input.strip()
+                        st.session_state["show_key_editor"] = False
+                        st.success("API Key updated successfully!")
+                        st.rerun()
+                    else:
+                        st.warning("Please enter a valid key.")
+            with k_col2:
+                if st.button("Cancel", use_container_width=True, key="btn_cancel_key"):
+                    st.session_state["show_key_editor"] = False
+                    st.rerun()
 
     st.markdown("---")
     st.markdown("### 📊 Database Status")
